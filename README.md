@@ -30,7 +30,12 @@ extract using the same output schema as the scripts below.
    - `recipient_name` should match the USAspending recipient string as closely as possible.
 
 3. Fetch USAspending awards (2015–2020 by default):
-   - `python scripts/fetch_usaspending_awards.py --start-date 2015-01-01 --end-date 2020-12-31 --keywords config/keywords.json`
+   - API path (default):
+     - `python -m scripts.fetch_usaspending_awards --start-date 2015-01-01 --end-date 2020-12-31 --keywords config/keywords.json`
+   - PostgreSQL archive path (if API is blocked or you restored the full DB):
+     - Restore the USAspending archive per their guide (requires large disk and time).
+     - `python -m scripts.export_usaspending_sql --db-url postgresql://root:password@127.0.0.1:5432/data_store_api --start-date 2015-01-01 --end-date 2020-12-31 --keywords config/keywords.json --out-csv data/raw/usaspending_awards_2015_2020.csv`
+     - If the script cannot find the `award_search` view, pass `--table` and column overrides to match your schema.
 
 4. Fetch Yahoo Finance financials:
    - `python scripts/fetch_financials.py --mapping-csv data/company_mapping.csv --out-csv data/processed/financials.csv --start-year 2015 --end-year 2020`
@@ -51,6 +56,8 @@ Outputs:
   or `net_margin` via `--profitability-metric`.
 - **Environmental performance**: Uses Yahoo Finance ESG scores when available. You can
   replace this with EPA/CDP metrics if you have access.
+- **USAspending SQL export**: Defaults to pulling from `award_search` and uses the closest
+  available columns for `award_amount` and other fields. Override column mappings if needed.
 
 ## Behavioral factors (qualitative layer)
 For behavioral drivers, the quantitative pipeline can be augmented with:
