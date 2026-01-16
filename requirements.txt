@@ -1,5 +1,6 @@
 matplotlib
 numpy
+openpyxl
 pandas
 psycopg2-binary
 requests
