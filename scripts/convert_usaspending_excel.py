@@ -91,7 +91,7 @@ COLUMN_CANDIDATES: Dict[str, List[str]] = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert USAspending Excel downloads into the pipeline CSV schema."
+        description="Convert USAspending Excel/CSV downloads into the pipeline CSV schema."
     )
     parser.add_argument("--input-dir", default="data/raw")
     parser.add_argument("--pattern", default="FY*.xlsx")
@@ -231,10 +231,15 @@ def build_standard_frame(
     return output
 
 
-def read_excel(path: Path, sheet: Optional[str]) -> pd.DataFrame:
-    if sheet:
-        return pd.read_excel(path, sheet_name=sheet)
-    return pd.read_excel(path, sheet_name=0)
+def read_source(path: Path, sheet: Optional[str]) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx", ".xls"}:
+        if sheet:
+            return pd.read_excel(path, sheet_name=sheet)
+        return pd.read_excel(path, sheet_name=0)
+    if suffix == ".csv":
+        return pd.read_csv(path, low_memory=False)
+    raise ValueError(f"Unsupported file type: {path.suffix}")
 
 
 def resolve_input_files(input_dir: str, pattern: str, files: Optional[List[str]]) -> List[Path]:
@@ -266,7 +271,7 @@ def main() -> None:
 
     frames: List[pd.DataFrame] = []
     for path in input_files:
-        df = read_excel(path, args.sheet)
+        df = read_source(path, args.sheet)
         df.columns = [str(col).strip() for col in df.columns]
         resolved = resolve_columns(df.columns, column_overrides)
         filename_year = extract_year_from_filename(path) if args.year_from_filename else None
