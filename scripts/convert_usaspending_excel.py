@@ -118,6 +118,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use FY#### in filename when fiscal year is missing.",
     )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=None,
+        help="Rows per chunk when reading large CSV files.",
+    )
     return parser.parse_args()
 
 
@@ -231,15 +237,27 @@ def build_standard_frame(
     return output
 
 
-def read_source(path: Path, sheet: Optional[str]) -> pd.DataFrame:
-    suffix = path.suffix.lower()
-    if suffix in {".xlsx", ".xls"}:
-        if sheet:
-            return pd.read_excel(path, sheet_name=sheet)
-        return pd.read_excel(path, sheet_name=0)
-    if suffix == ".csv":
-        return pd.read_csv(path, low_memory=False)
-    raise ValueError(f"Unsupported file type: {path.suffix}")
+def read_excel_source(path: Path, sheet: Optional[str]) -> pd.DataFrame:
+    if sheet:
+        return pd.read_excel(path, sheet_name=sheet)
+    return pd.read_excel(path, sheet_name=0)
+
+
+def resolve_chunksize(path: Path, requested: Optional[int]) -> Optional[int]:
+    if requested is not None:
+        return requested if requested > 0 else None
+    try:
+        size_bytes = path.stat().st_size
+    except OSError:
+        return None
+    if size_bytes >= 200 * 1024 * 1024:
+        return 200_000
+    return None
+
+
+def build_usecols(resolved: Dict[str, Optional[str]]) -> List[str]:
+    cols = [value for value in resolved.values() if value]
+    return sorted(set(cols))
 
 
 def resolve_input_files(input_dir: str, pattern: str, files: Optional[List[str]]) -> List[Path]:
@@ -269,18 +287,70 @@ def main() -> None:
         "fiscal_year": args.fiscal_year_col,
     }
 
-    frames: List[pd.DataFrame] = []
+    wrote_header = False
+    total_rows = 0
     for path in input_files:
-        df = read_source(path, args.sheet)
-        df.columns = [str(col).strip() for col in df.columns]
-        resolved = resolve_columns(df.columns, column_overrides)
+        suffix = path.suffix.lower()
         filename_year = extract_year_from_filename(path) if args.year_from_filename else None
-        frames.append(build_standard_frame(df, resolved, filename_year))
 
-    combined = pd.concat(frames, ignore_index=True)
-    os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-    combined.to_csv(args.out_csv, index=False)
-    print(f"Wrote {len(combined)} rows to {args.out_csv}")
+        if suffix in {".xlsx", ".xls"}:
+            df = read_excel_source(path, args.sheet)
+            df.columns = [str(col).strip() for col in df.columns]
+            resolved = resolve_columns(df.columns, column_overrides)
+            standard = build_standard_frame(df, resolved, filename_year)
+            os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
+            standard.to_csv(
+                args.out_csv,
+                index=False,
+                mode="a" if wrote_header else "w",
+                header=not wrote_header,
+            )
+            wrote_header = True
+            total_rows += len(standard)
+            continue
+
+        if suffix == ".csv":
+            header_df = pd.read_csv(path, nrows=0)
+            header_df.columns = [str(col).strip() for col in header_df.columns]
+            resolved = resolve_columns(header_df.columns, column_overrides)
+            usecols = build_usecols(resolved)
+            chunk_size = resolve_chunksize(path, args.chunksize)
+            os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
+
+            if chunk_size:
+                for chunk in pd.read_csv(
+                    path,
+                    usecols=usecols,
+                    chunksize=chunk_size,
+                    low_memory=False,
+                ):
+                    chunk.columns = [str(col).strip() for col in chunk.columns]
+                    standard = build_standard_frame(chunk, resolved, filename_year)
+                    standard.to_csv(
+                        args.out_csv,
+                        index=False,
+                        mode="a" if wrote_header else "w",
+                        header=not wrote_header,
+                    )
+                    wrote_header = True
+                    total_rows += len(standard)
+            else:
+                df = pd.read_csv(path, usecols=usecols, low_memory=False)
+                df.columns = [str(col).strip() for col in df.columns]
+                standard = build_standard_frame(df, resolved, filename_year)
+                standard.to_csv(
+                    args.out_csv,
+                    index=False,
+                    mode="a" if wrote_header else "w",
+                    header=not wrote_header,
+                )
+                wrote_header = True
+                total_rows += len(standard)
+            continue
+
+        raise ValueError(f"Unsupported file type: {path.suffix}")
+
+    print(f"Wrote {total_rows} rows to {args.out_csv}")
     print(f"Processed {len(input_files)} files.")
 
 
