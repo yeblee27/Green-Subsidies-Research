@@ -37,6 +37,9 @@ extract using the same output schema as the scripts below.
      - `python -m scripts.convert_usaspending_excel --input-dir data/raw --pattern "FY*.xlsx" --out-csv data/raw/usaspending_awards_2015_2020.csv`
      - If your downloads are CSV, use `--pattern "FY*.csv"` instead.
      - Large CSVs are chunked automatically; override with `--chunksize`.
+   - Simplified firm-year table (25 firms × years):
+     - Save a CSV/Excel with columns like `recipient_name`, `ticker`, `company_name`, `2015`...`2020`
+     - `python -m scripts.convert_wide_subsidies --input-file data/raw/subsidies_wide.csv --out-csv data/raw/usaspending_awards_2015_2020.csv`
    - PostgreSQL archive path (if API is blocked or you restored the full DB):
      - Restore the USAspending archive per their guide (requires large disk and time).
      - `python -m scripts.export_usaspending_sql --db-url postgresql://root:password@127.0.0.1:5432/data_store_api --start-date 2015-01-01 --end-date 2020-12-31 --keywords config/keywords.json --out-csv data/raw/usaspending_awards_2015_2020.csv`
