@@ -47,6 +47,11 @@ extract using the same output schema as the scripts below.
 
 4. Fetch Yahoo Finance financials:
    - `python scripts/fetch_financials.py --mapping-csv data/company_mapping.csv --out-csv data/processed/financials.csv --start-year 2015 --end-year 2020`
+   - Bloomberg export path (no Yahoo):
+     - Export a firm-year table from Bloomberg with columns for `ticker`, `year`, and
+       balance-sheet/income-statement fields.
+     - `python -m scripts.convert_bloomberg_financials --input-file data/raw/bloomberg_financials.xlsx --ticker-col ticker --year-col year --out-csv data/processed/financials.csv`
+     - Override column names using flags like `--total-debt-col`, `--total-assets-col`, etc.
 
 5. Merge and analyze:
    - `python scripts/merge_and_analyze.py --awards-csv data/raw/usaspending_awards_2015_2020.csv --financials-csv data/processed/financials.csv --out-dir reports`
