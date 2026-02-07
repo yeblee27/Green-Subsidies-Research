@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Compute Whited & Wu (WW) Index and run a simple linear regression
-against IAS 38 intangible assets, then save a scatter plot with
-the fitted regression line.
+Compute Whited and Wu (WW) Index, merge tax credits data,
+run a linear regression against IAS 38 intangible assets,
+and save a scatter plot with the regression line.
 """
 from __future__ import annotations
 
@@ -25,12 +25,54 @@ WW_COEFFICIENTS = {
 }
 
 
-def _ensure_column(df: pd.DataFrame, column: str, purpose: str) -> None:
-    if column not in df.columns:
-        raise ValueError(
-            f"Missing required column '{column}' ({purpose}). "
-            "Please add it or pass a different column name."
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute WW index, merge tax credits data, "
+            "and regress IAS 38 intangible assets on WW index."
         )
+    )
+    parser.add_argument(
+        "--company-file",
+        default="company_financials.xlsx",
+        help="Company financials Excel file.",
+    )
+    parser.add_argument(
+        "--gov-file",
+        default="govspending.xlsx",
+        help="Government spending (tax credits) Excel file.",
+    )
+    parser.add_argument(
+        "--output-plot",
+        default="ww_ias38_regression.png",
+        help="Output plot filename (PNG).",
+    )
+    parser.add_argument(
+        "--output-csv",
+        default="ww_ias38_with_index.csv",
+        help="Output CSV filename with computed WW index.",
+    )
+    parser.add_argument("--firm-col", default="firm")
+    parser.add_argument("--year-col", default="year")
+    parser.add_argument("--cash-flow-col", default="cash_flow")
+    parser.add_argument("--total-assets-col", default="total_assets")
+    parser.add_argument("--long-term-debt-col", default="long_term_debt")
+    parser.add_argument("--dividend-dummy-col", default="dividend_dummy")
+    parser.add_argument("--dividends-col", default="dividends_paid")
+    parser.add_argument("--sales-col", default="sales")
+    parser.add_argument("--sales-growth-col", default="sales_growth")
+    parser.add_argument("--industry-col", default="industry")
+    parser.add_argument("--industry-sales-col", default="industry_sales")
+    parser.add_argument("--industry-sales-growth-col", default="industry_sales_growth")
+    parser.add_argument("--ias38-col", default="ias38_intangible_assets")
+    parser.add_argument("--tax-credit-col", default="tax_credit")
+    return parser.parse_args()
+
+
+def _validate_required_columns(df: pd.DataFrame, required: List[Tuple[str, str]]) -> None:
+    missing = [name for name, _ in required if name not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
 
 def _maybe_compute_dividend_dummy(
@@ -42,7 +84,7 @@ def _maybe_compute_dividend_dummy(
         df[dividend_dummy_col] = (df[dividends_col].fillna(0) > 0).astype(int)
         return df
     raise ValueError(
-        "Missing dividend dummy column. Provide either "
+        "Missing dividend dummy. Provide either "
         f"'{dividend_dummy_col}' or '{dividends_col}'."
     )
 
@@ -62,9 +104,7 @@ def _maybe_compute_sales_growth(
             "Provide sales growth directly or provide sales."
         )
     if year_col not in df.columns:
-        raise ValueError(
-            f"Missing '{year_col}' for sales growth computation."
-        )
+        raise ValueError(f"Missing '{year_col}' for sales growth computation.")
     sort_cols = [year_col]
     if firm_col in df.columns:
         sort_cols = [firm_col, year_col]
@@ -134,7 +174,7 @@ def compute_ww_index(
 def _linear_regression(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float]:
     if np.allclose(x.min(), x.max()):
         raise ValueError(
-            "Whited & Wu Index has no variation; regression is undefined."
+            "Whited and Wu Index has no variation; regression is undefined."
         )
     slope, intercept = np.polyfit(x, y, 1)
     y_pred = slope * x + intercept
@@ -144,52 +184,33 @@ def _linear_regression(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, floa
     return slope, intercept, r_squared
 
 
-def _validate_required_columns(df: pd.DataFrame, required: List[Tuple[str, str]]) -> None:
-    missing = [name for name, _ in required if name not in df.columns]
-    if missing:
-        details = ", ".join(missing)
-        raise ValueError(f"Missing required columns: {details}")
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Compute Whited & Wu Index, run regression against "
-            "IAS 38 intangible assets, and save a scatter plot."
-        )
+def _merge_gov_data(
+    company_df: pd.DataFrame,
+    gov_df: pd.DataFrame,
+    firm_col: str,
+    year_col: str,
+) -> pd.DataFrame:
+    for col in (firm_col, year_col):
+        if col not in gov_df.columns:
+            raise ValueError(
+                f"Government spending file missing required column '{col}'."
+            )
+    merged = company_df.merge(
+        gov_df,
+        on=[firm_col, year_col],
+        how="left",
+        suffixes=("", "_gov"),
     )
-    parser.add_argument("--input", "-i", required=True, help="Input CSV file.")
-    parser.add_argument(
-        "--output-plot",
-        "-o",
-        default="ww_ias38_regression.png",
-        help="Output plot filename (PNG).",
-    )
-    parser.add_argument(
-        "--output-csv",
-        default="ww_ias38_with_index.csv",
-        help="Output CSV filename with computed WW index.",
-    )
-    parser.add_argument("--cash-flow-col", default="cash_flow")
-    parser.add_argument("--total-assets-col", default="total_assets")
-    parser.add_argument("--long-term-debt-col", default="long_term_debt")
-    parser.add_argument("--dividend-dummy-col", default="dividend_dummy")
-    parser.add_argument("--dividends-col", default="dividends_paid")
-    parser.add_argument("--sales-col", default="sales")
-    parser.add_argument("--sales-growth-col", default="sales_growth")
-    parser.add_argument("--industry-sales-col", default="industry_sales")
-    parser.add_argument("--industry-sales-growth-col", default="industry_sales_growth")
-    parser.add_argument("--industry-col", default="industry")
-    parser.add_argument("--firm-col", default="firm")
-    parser.add_argument("--year-col", default="year")
-    parser.add_argument("--ias38-col", default="ias38_intangible_assets")
-    return parser.parse_args()
+    return merged
 
 
 def main() -> int:
     args = parse_args()
 
-    df = pd.read_csv(args.input)
+    company_df = pd.read_excel(args.company_file)
+    gov_df = pd.read_excel(args.gov_file)
+
+    df = _merge_gov_data(company_df, gov_df, args.firm_col, args.year_col)
 
     df = _maybe_compute_dividend_dummy(
         df, args.dividend_dummy_col, args.dividends_col
@@ -225,7 +246,7 @@ def main() -> int:
     if invalid_assets:
         print(
             f"Warning: {invalid_assets} rows have non-positive total_assets "
-            "and will be excluded from the WW Index calculation.",
+            "and will be excluded from the WW index calculation.",
             file=sys.stderr,
         )
 
@@ -276,9 +297,9 @@ def main() -> int:
             f"R^2 = {r_squared:.4f}"
         ),
     )
-    ax.set_xlabel("Whited & Wu Index")
+    ax.set_xlabel("Whited and Wu Index")
     ax.set_ylabel("IAS 38 Intangible Assets")
-    ax.set_title("IAS 38 Intangible Assets vs Whited & Wu Index")
+    ax.set_title("IAS 38 Intangible Assets vs Whited and Wu Index")
     ax.legend()
     fig.tight_layout()
     fig.savefig(args.output_plot, dpi=300)
@@ -302,6 +323,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as exc:  # pragma: no cover - CLI safeguard
+    except Exception as exc:  # CLI safeguard
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

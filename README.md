@@ -1,12 +1,18 @@
 # Green-Subsidies-Research
 
-This repository contains a small analysis utility to compute the
-Whited & Wu (WW) Index for financial constraints and to regress
-IAS 38 intangible assets on the WW Index with a scatter plot.
+This project computes the Whited and Wu (WW) Index for financial constraints
+and runs a linear regression of IAS 38 intangible assets on the WW Index.
+It reads two Excel files:
 
-## Whited & Wu Index formula
+- `company_financials.xlsx`
+- `govspending.xlsx`
 
-The script uses the Whited & Wu (2006) specification:
+The output includes a scatter plot with the fitted regression line and a CSV
+with the computed WW index.
+
+## Whited and Wu (WW) Index
+
+The script uses the Whited and Wu (2006) specification:
 
 ```
 WW = -0.091 * (CashFlow / TotalAssets)
@@ -17,51 +23,50 @@ WW = -0.091 * (CashFlow / TotalAssets)
      -0.035 * SalesGrowth
 ```
 
-Where `DividendDummy` is 1 if dividends were paid in that year and 0
-otherwise. Sales growth inputs are expressed as decimals (e.g., 5% = 0.05).
-
 ## Data requirements
 
-Your input CSV should include at least the following columns (or provide
-the column names via CLI options):
+### company_financials.xlsx
 
-| Column | Description |
-| --- | --- |
-| `cash_flow` | Operating cash flow |
-| `total_assets` | Total assets (must be positive for log) |
-| `long_term_debt` | Long-term debt |
-| `dividend_dummy` | 1 if dividends paid, else 0 (or provide `dividends_paid`) |
-| `sales_growth` | Company sales growth (decimal), or provide `sales` |
-| `industry_sales_growth` | Industry sales growth (decimal), or provide `industry_sales` |
-| `ias38_intangible_assets` | IAS 38 intangible assets |
+Required columns (default names):
 
-If `sales_growth` is missing and you provide `sales`, the script will
-compute year-over-year growth using `firm` and `year` (if present).
-If `industry_sales_growth` is missing and you provide `industry_sales`,
-the script will compute industry growth using `industry` and `year`.
+- `firm`
+- `year`
+- `cash_flow`
+- `total_assets` (must be positive for log)
+- `long_term_debt`
+- `dividend_dummy` (or `dividends_paid`)
+- `sales_growth` (or `sales`)
+- `industry_sales_growth` (or `industry_sales`)
+- `industry` (required if computing industry sales growth)
+- `ias38_intangible_assets`
 
-See `financials_template.csv` for a minimal example.
+### govspending.xlsx
 
-## Run the analysis
+Required columns (default names):
+
+- `firm`
+- `year`
+- `tax_credit` (optional in analysis; kept for output)
+
+The two files are merged on `firm` and `year`. If `govspending.xlsx` contains
+other columns, they will also be merged into the output CSV.
+
+## Install and run
 
 ```
 pip install -r requirements.txt
-python ww_ias38_analysis.py --input financials.csv
+python ww_ias38_regression.py
 ```
 
-Outputs:
+## Optional column name overrides
 
-- `ww_ias38_regression.png`: scatter plot with regression line
-- `ww_ias38_with_index.csv`: input data with `ww_index` column added
-
-## Column name overrides (optional)
-
-If your dataset uses different column names, pass them via CLI flags:
+If your dataset uses different column names, pass them via flags:
 
 ```
-python ww_ias38_analysis.py \
-  --input financials.csv \
-  --cash-flow-col ocf \
+python ww_ias38_regression.py \
+  --company-file company_financials.xlsx \
+  --gov-file govspending.xlsx \
+  --cash-flow-col operating_cash_flow \
   --total-assets-col total_assets_usd \
   --ias38-col ias38_assets
 ```
