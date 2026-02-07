@@ -7,7 +7,6 @@ and save a scatter plot with the regression line.
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from typing import Dict, List, Tuple
@@ -152,7 +151,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--company-file",
         default="company_financials.xlsx",
-        help="Company financials Excel or CSV file.",
+        help="Company financials Excel file.",
     )
     parser.add_argument(
         "--company-sheet",
@@ -162,7 +161,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gov-file",
         default="govspending.xlsx",
-        help="Government spending (tax credits) Excel or CSV file.",
+        help="Government spending (tax credits) Excel file.",
     )
     parser.add_argument(
         "--gov-sheet",
@@ -274,38 +273,15 @@ def _ensure_key_columns(
     return df
 
 
-def _read_table(path: str, sheet: str | None = None) -> pd.DataFrame:
-    ext = os.path.splitext(path.lower())[1]
-    if ext in {".csv", ".tsv"}:
-        sep = "\t" if ext == ".tsv" else ","
-        return pd.read_csv(path, sep=sep)
-    return pd.read_excel(path, sheet_name=sheet)
-
-
 def _read_company_data(
     path: str,
     sheet: str | None,
     firm_col: str,
     year_col: str,
 ) -> pd.DataFrame:
-    ext = os.path.splitext(path.lower())[1]
-    if ext in {".csv", ".tsv"}:
-        return _ensure_key_columns(_read_table(path), firm_col, year_col)
-    if sheet:
-        return _ensure_key_columns(_read_table(path, sheet), firm_col, year_col)
-
-    sheets = pd.read_excel(path, sheet_name=None)
-    frames: List[pd.DataFrame] = []
-    for sheet_name, sheet_df in sheets.items():
-        if sheet_df is None or sheet_df.empty:
-            continue
-        sheet_df = _ensure_key_columns(
-            sheet_df, firm_col, year_col, firm_fallback=sheet_name
-        )
-        frames.append(sheet_df)
-    if not frames:
-        raise ValueError("No data found in company file.")
-    return pd.concat(frames, ignore_index=True)
+    sheet_name = sheet if sheet else 0
+    df = pd.read_excel(path, sheet_name=sheet_name)
+    return _ensure_key_columns(df, firm_col, year_col)
 
 
 def _read_gov_data(
@@ -314,7 +290,8 @@ def _read_gov_data(
     firm_col: str,
     year_col: str,
 ) -> pd.DataFrame:
-    df = _read_table(path, sheet)
+    sheet_name = sheet if sheet else 0
+    df = pd.read_excel(path, sheet_name=sheet_name)
     return _ensure_key_columns(df, firm_col, year_col)
 
 

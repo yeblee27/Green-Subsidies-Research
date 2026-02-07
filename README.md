@@ -2,10 +2,10 @@
 
 This project computes the Whited and Wu (WW) Index for financial constraints
 and runs a linear regression of IAS 38 intangible assets on the WW Index.
-It reads two Excel or CSV files:
+It reads two Excel files:
 
-- `company_financials.xlsx` (or `.csv`)
-- `govspending.xlsx` (or `.csv`)
+- `company_financials.xlsx`
+- `govspending.xlsx`
 
 The output includes a scatter plot with the fitted regression line and a CSV
 with the computed WW index.
@@ -25,7 +25,7 @@ WW = -0.091 * (CashFlow / TotalAssets)
 
 ## Data requirements
 
-### company_financials.xlsx / company_financials.csv
+### company_financials.xlsx
 
 Required columns (default names):
 
@@ -40,7 +40,7 @@ Required columns (default names):
 - `industry` (required if computing industry sales growth)
 - `ias38_intangible_assets`
 
-### govspending.xlsx / govspending.csv
+### govspending.xlsx
 
 Required columns (default names):
 
@@ -50,10 +50,6 @@ Required columns (default names):
 
 The two files are merged on `firm` and `year`. If `govspending.xlsx` contains
 other columns, they will also be merged into the output CSV.
-
-If your company Excel workbook has multiple sheets, the script merges all
-sheets by default and uses the sheet name as the `firm` value when the firm
-column is missing. You can also target a single sheet with `--company-sheet`.
 
 ## Install and run
 
