@@ -2,10 +2,10 @@
 
 This project computes the Whited and Wu (WW) Index for financial constraints
 and runs a linear regression of IAS 38 intangible assets on the WW Index.
-It reads two Excel files:
+It reads two Excel or CSV files:
 
-- `company_financials.xlsx`
-- `govspending.xlsx`
+- `company_financials.xlsx` (or `.csv`)
+- `govspending.xlsx` (or `.csv`)
 
 The output includes a scatter plot with the fitted regression line and a CSV
 with the computed WW index.
@@ -25,7 +25,7 @@ WW = -0.091 * (CashFlow / TotalAssets)
 
 ## Data requirements
 
-### company_financials.xlsx
+### company_financials.xlsx / company_financials.csv
 
 Required columns (default names):
 
@@ -40,7 +40,7 @@ Required columns (default names):
 - `industry` (required if computing industry sales growth)
 - `ias38_intangible_assets`
 
-### govspending.xlsx
+### govspending.xlsx / govspending.csv
 
 Required columns (default names):
 
@@ -51,6 +51,10 @@ Required columns (default names):
 The two files are merged on `firm` and `year`. If `govspending.xlsx` contains
 other columns, they will also be merged into the output CSV.
 
+If your company Excel workbook has multiple sheets, the script merges all
+sheets by default and uses the sheet name as the `firm` value when the firm
+column is missing. You can also target a single sheet with `--company-sheet`.
+
 ## Install and run
 
 ```
@@ -60,7 +64,8 @@ python ww_ias38_regression.py
 
 ## Optional column name overrides
 
-If your dataset uses different column names, pass them via flags:
+If your dataset uses different column names, pass them via flags. The script
+also attempts common column aliases automatically.
 
 ```
 python ww_ias38_regression.py \
@@ -69,4 +74,14 @@ python ww_ias38_regression.py \
   --cash-flow-col operating_cash_flow \
   --total-assets-col total_assets_usd \
   --ias38-col ias38_assets
+```
+
+To use specific sheets:
+
+```
+python ww_ias38_regression.py \
+  --company-file company_financials.xlsx \
+  --company-sheet "Sheet1" \
+  --gov-file govspending.xlsx \
+  --gov-sheet "TaxCredits"
 ```

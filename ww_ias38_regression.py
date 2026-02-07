@@ -7,8 +7,10 @@ and save a scatter plot with the regression line.
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import sys
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,6 +26,121 @@ WW_COEFFICIENTS = {
     "sales_growth": -0.035,
 }
 
+COLUMN_ALIASES = {
+    "firm": [
+        "firm",
+        "company",
+        "company_name",
+        "companyname",
+        "issuer",
+        "entity",
+        "corp",
+        "corporation",
+        "ticker",
+        "symbol",
+        "name",
+    ],
+    "year": [
+        "year",
+        "fiscalyear",
+        "fiscal_year",
+        "fy",
+        "fyear",
+        "reportyear",
+        "period",
+        "fiscalperiod",
+    ],
+    "cash_flow": [
+        "cash_flow",
+        "cashflow",
+        "operating_cash_flow",
+        "operatingcashflow",
+        "ocf",
+        "cfo",
+        "cashflowfromoperations",
+        "netcashfromoperatingactivities",
+    ],
+    "total_assets": [
+        "total_assets",
+        "totalassets",
+        "totalasset",
+        "assets",
+    ],
+    "long_term_debt": [
+        "long_term_debt",
+        "longtermdebt",
+        "ltdebt",
+        "longtermborrowings",
+        "longtermliabilities",
+    ],
+    "dividend_dummy": [
+        "dividend_dummy",
+        "dividenddummy",
+        "dividendpaid",
+        "dividendpaidflag",
+        "dividend_flag",
+    ],
+    "dividends_paid": [
+        "dividends_paid",
+        "dividends",
+        "dividendspaid",
+        "cashdividends",
+        "dividend",
+    ],
+    "sales": [
+        "sales",
+        "revenue",
+        "net_sales",
+        "revenues",
+        "totalrevenue",
+    ],
+    "sales_growth": [
+        "sales_growth",
+        "salesgrowth",
+        "revenue_growth",
+        "revenuegrowth",
+        "salesgr",
+    ],
+    "industry": [
+        "industry",
+        "sector",
+        "sic",
+        "naics",
+    ],
+    "industry_sales": [
+        "industry_sales",
+        "industrysales",
+        "industryrevenue",
+    ],
+    "industry_sales_growth": [
+        "industry_sales_growth",
+        "industrysalesgrowth",
+        "industryrevenuegrowth",
+    ],
+    "ias38_intangible_assets": [
+        "ias38_intangible_assets",
+        "ias38intangibleassets",
+        "intangible_assets",
+        "intangibleassets",
+        "intangibleasset",
+        "ias38assets",
+        "capitalizedrd",
+        "capitalisedrd",
+        "capitalizedr&d",
+        "capitalisedr&d",
+    ],
+    "tax_credit": [
+        "tax_credit",
+        "taxcredit",
+        "taxcredits",
+        "rdtaxcredit",
+        "subsidy",
+        "subsidies",
+        "government_grant",
+        "governmentgrant",
+    ],
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -35,12 +152,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--company-file",
         default="company_financials.xlsx",
-        help="Company financials Excel file.",
+        help="Company financials Excel or CSV file.",
+    )
+    parser.add_argument(
+        "--company-sheet",
+        default=None,
+        help="Company file sheet name (optional). If omitted, all sheets are merged.",
     )
     parser.add_argument(
         "--gov-file",
         default="govspending.xlsx",
-        help="Government spending (tax credits) Excel file.",
+        help="Government spending (tax credits) Excel or CSV file.",
+    )
+    parser.add_argument(
+        "--gov-sheet",
+        default=None,
+        help="Government spending sheet name (optional).",
     )
     parser.add_argument(
         "--output-plot",
@@ -69,10 +196,126 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _validate_required_columns(df: pd.DataFrame, required: List[Tuple[str, str]]) -> None:
-    missing = [name for name, _ in required if name not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+def _normalize_col_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(name).strip().lower())
+
+
+def _build_column_map(columns: List[str]) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    for col in columns:
+        normalized = _normalize_col_name(col)
+        if normalized and normalized not in mapping:
+            mapping[normalized] = col
+    return mapping
+
+
+def _find_column(df: pd.DataFrame, candidates: List[str]) -> str | None:
+    column_map = _build_column_map(df.columns.tolist())
+    for candidate in candidates:
+        normalized = _normalize_col_name(candidate)
+        if normalized in column_map:
+            return column_map[normalized]
+    return None
+
+
+def _standardize_column(
+    df: pd.DataFrame,
+    canonical_name: str,
+    aliases: List[str],
+    label: str,
+    required: bool = True,
+) -> pd.DataFrame:
+    if canonical_name in df.columns:
+        return df
+    found = _find_column(df, [canonical_name] + aliases)
+    if found:
+        df[canonical_name] = df[found]
+        return df
+    if required:
+        available = ", ".join(df.columns)
+        raise ValueError(
+            f"Missing required column for {label}. Tried: "
+            f"{', '.join([canonical_name] + aliases)}. "
+            f"Available columns: {available}"
+        )
+    return df
+
+
+def _ensure_key_columns(
+    df: pd.DataFrame,
+    firm_col: str,
+    year_col: str,
+    firm_fallback: str | None = None,
+) -> pd.DataFrame:
+    df = df.copy()
+    firm_found = _find_column(df, [firm_col] + COLUMN_ALIASES["firm"])
+    if firm_found:
+        if firm_col not in df.columns:
+            df[firm_col] = df[firm_found]
+    elif firm_fallback is not None:
+        df[firm_col] = firm_fallback
+    else:
+        available = ", ".join(df.columns)
+        raise ValueError(
+            f"Missing required firm column. Available columns: {available}"
+        )
+
+    year_found = _find_column(df, [year_col] + COLUMN_ALIASES["year"])
+    if year_found:
+        if year_col not in df.columns:
+            df[year_col] = df[year_found]
+    else:
+        available = ", ".join(df.columns)
+        raise ValueError(
+            f"Missing required year column. Available columns: {available}"
+        )
+
+    df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+    return df
+
+
+def _read_table(path: str, sheet: str | None = None) -> pd.DataFrame:
+    ext = os.path.splitext(path.lower())[1]
+    if ext in {".csv", ".tsv"}:
+        sep = "\t" if ext == ".tsv" else ","
+        return pd.read_csv(path, sep=sep)
+    return pd.read_excel(path, sheet_name=sheet)
+
+
+def _read_company_data(
+    path: str,
+    sheet: str | None,
+    firm_col: str,
+    year_col: str,
+) -> pd.DataFrame:
+    ext = os.path.splitext(path.lower())[1]
+    if ext in {".csv", ".tsv"}:
+        return _ensure_key_columns(_read_table(path), firm_col, year_col)
+    if sheet:
+        return _ensure_key_columns(_read_table(path, sheet), firm_col, year_col)
+
+    sheets = pd.read_excel(path, sheet_name=None)
+    frames: List[pd.DataFrame] = []
+    for sheet_name, sheet_df in sheets.items():
+        if sheet_df is None or sheet_df.empty:
+            continue
+        sheet_df = _ensure_key_columns(
+            sheet_df, firm_col, year_col, firm_fallback=sheet_name
+        )
+        frames.append(sheet_df)
+    if not frames:
+        raise ValueError("No data found in company file.")
+    return pd.concat(frames, ignore_index=True)
+
+
+def _read_gov_data(
+    path: str,
+    sheet: str | None,
+    firm_col: str,
+    year_col: str,
+) -> pd.DataFrame:
+    df = _read_table(path, sheet)
+    return _ensure_key_columns(df, firm_col, year_col)
 
 
 def _maybe_compute_dividend_dummy(
@@ -207,39 +450,107 @@ def _merge_gov_data(
 def main() -> int:
     args = parse_args()
 
-    company_df = pd.read_excel(args.company_file)
-    gov_df = pd.read_excel(args.gov_file)
+    company_df = _read_company_data(
+        args.company_file, args.company_sheet, args.firm_col, args.year_col
+    )
+    gov_df = _read_gov_data(
+        args.gov_file, args.gov_sheet, args.firm_col, args.year_col
+    )
 
     df = _merge_gov_data(company_df, gov_df, args.firm_col, args.year_col)
 
-    df = _maybe_compute_dividend_dummy(
-        df, args.dividend_dummy_col, args.dividends_col
-    )
-    df = _maybe_compute_sales_growth(
+    df = _standardize_column(
         df,
-        args.sales_growth_col,
-        args.sales_col,
-        args.firm_col,
-        args.year_col,
+        args.cash_flow_col,
+        COLUMN_ALIASES["cash_flow"],
+        "cash flow",
     )
-    df = _maybe_compute_industry_sales_growth(
+    df = _standardize_column(
         df,
-        args.industry_sales_growth_col,
-        args.industry_sales_col,
-        args.industry_col,
-        args.year_col,
+        args.total_assets_col,
+        COLUMN_ALIASES["total_assets"],
+        "total assets",
+    )
+    df = _standardize_column(
+        df,
+        args.long_term_debt_col,
+        COLUMN_ALIASES["long_term_debt"],
+        "long-term debt",
+    )
+    df = _standardize_column(
+        df,
+        args.ias38_col,
+        COLUMN_ALIASES["ias38_intangible_assets"],
+        "IAS 38 intangible assets",
     )
 
-    required = [
-        (args.cash_flow_col, "Operating cash flow"),
-        (args.total_assets_col, "Total assets"),
-        (args.long_term_debt_col, "Long term debt"),
-        (args.dividend_dummy_col, "Dividend dummy"),
-        (args.sales_growth_col, "Sales growth"),
-        (args.industry_sales_growth_col, "Industry sales growth"),
-        (args.ias38_col, "IAS 38 intangible assets"),
-    ]
-    _validate_required_columns(df, required)
+    df = _standardize_column(
+        df,
+        args.dividend_dummy_col,
+        COLUMN_ALIASES["dividend_dummy"],
+        "dividend dummy",
+        required=False,
+    )
+    if args.dividend_dummy_col not in df.columns:
+        df = _standardize_column(
+            df,
+            args.dividends_col,
+            COLUMN_ALIASES["dividends_paid"],
+            "dividends paid",
+        )
+        df = _maybe_compute_dividend_dummy(
+            df, args.dividend_dummy_col, args.dividends_col
+        )
+
+    df = _standardize_column(
+        df,
+        args.sales_growth_col,
+        COLUMN_ALIASES["sales_growth"],
+        "sales growth",
+        required=False,
+    )
+    if args.sales_growth_col not in df.columns:
+        df = _standardize_column(
+            df,
+            args.sales_col,
+            COLUMN_ALIASES["sales"],
+            "sales",
+        )
+        df = _maybe_compute_sales_growth(
+            df,
+            args.sales_growth_col,
+            args.sales_col,
+            args.firm_col,
+            args.year_col,
+        )
+
+    df = _standardize_column(
+        df,
+        args.industry_sales_growth_col,
+        COLUMN_ALIASES["industry_sales_growth"],
+        "industry sales growth",
+        required=False,
+    )
+    if args.industry_sales_growth_col not in df.columns:
+        df = _standardize_column(
+            df,
+            args.industry_sales_col,
+            COLUMN_ALIASES["industry_sales"],
+            "industry sales",
+        )
+        df = _standardize_column(
+            df,
+            args.industry_col,
+            COLUMN_ALIASES["industry"],
+            "industry",
+        )
+        df = _maybe_compute_industry_sales_growth(
+            df,
+            args.industry_sales_growth_col,
+            args.industry_sales_col,
+            args.industry_col,
+            args.year_col,
+        )
 
     total_assets = df[args.total_assets_col].astype(float)
     invalid_assets = (total_assets <= 0).sum()
